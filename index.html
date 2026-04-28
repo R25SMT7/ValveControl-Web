@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>バルブ制御システム</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 10px 0;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        #connectBtn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+        }
+
+        #sendBtn {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            font-weight: bold;
+        }
+
+        #sendBtn:disabled {
+            background-color: #aaa;
+            cursor: not-allowed;
+        }
+
+        #saveConfigBtn {
+            background-color: #17a2b8;
+            color: white;
+            border: none;
+        }
+
+        #loadConfigBtn {
+            background-color: #ffc107;
+            color: #222;
+            border: none;
+        }
+
+        #status {
+            margin-left: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .settings-panel {
+            background-color: #e9ecef;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .counter-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-circle {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            border-radius: 50%;
+            border: 1px solid #aaa;
+            background-color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 18px;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .btn-circle:hover {
+            background-color: #ddd;
+        }
+
+        .btn-circle:disabled {
+            background-color: #ddd;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .count-display {
+            font-weight: bold;
+            font-size: 18px;
+            width: 30px;
+            text-align: center;
+        }
+
+        .setting-label {
+            width: 220px;
+        }
+
+        table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            width: 100%;
+            min-width: 900px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        input[type="checkbox"] {
+            transform: scale(1.5);
+            cursor: pointer;
+        }
+
+        input[type="number"] {
+            width: 70px;
+            padding: 4px;
+            text-align: center;
+        }
+
+        input[type="text"] {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .control-row {
+            background-color: #e9ecef;
+        }
+
+        .valve-label-box {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: center;
+            min-width: 120px;
+        }
+
+        .pin-label {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .custom-name-input {
+            width: 120px;
+            text-align: center;
+        }
+
+        .note {
+            font-size: 13px;
+            color: #555;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>バルブ制御システム</h2>
+
+        <div>
+            <button id="connectBtn">ESP32と接続する</button>
+            <span id="status">ステータス: 未接続</span>
+        </div>
+
+        <div class="settings-panel">
+            <div class="counter-controls">
+                <strong class="setting-label">バルブの数 (最大18): </strong>
+                <button class="btn-circle" id="btnValveMinus">-</button>
+                <span class="count-display" id="valveCountDisp">18</span>
+                <button class="btn-circle" id="btnValvePlus">+</button>
+            </div>
+
+            <div class="counter-controls">
+                <strong class="setting-label">ステップの数 (最大20): </strong>
+                <button class="btn-circle" id="btnStepMinus">-</button>
+                <span class="count-display" id="stepCountDisp">10</span>
+                <button class="btn-circle" id="btnStepPlus">+</button>
+            </div>
+
+            <div class="counter-controls" style="margin-top: 15px;">
+                <strong class="setting-label">全体のループ回数: </strong>
+                <input type="number" id="loopCount" value="1" min="1" max="999" style="width: 80px; font-size: 16px;"> 回
+            </div>
+
+            <div class="counter-controls" style="margin-top: 15px;">
+                <strong class="setting-label">設定ファイル: </strong>
+                <button id="saveConfigBtn">設定を保存</button>
+                <button id="loadConfigBtn">設定を読み込み</button>
+                <input type="file" id="configFileInput" accept=".json,application/json" style="display: none;">
+            </div>
+
+            <div class="note">
+                ※ バルブは上から Pin_2, Pin_4, Pin_5, Pin_12, Pin_14, Pin_15, Pin_16, Pin_17, Pin_18, Pin_19, Pin_21, Pin_22, Pin_23, Pin_25, Pin_26, Pin_27, Pin_32, Pin_33 の順です。<br>
+                ※ カスタム名、時間、チェック状態、ループ回数はJSON設定ファイルとして保存・復元できます。
+            </div>
+        </div>
+
+        <table id="sequenceTable">
+            <thead>
+                <tr id="tableHeader"></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <button id="sendBtn" disabled>シーケンスを送信 (Start)</button>
+    </div>
+
+    <script>
+        // --- 状態管理 ---
+        let currentSteps = 10;
+        const MAX_STEPS = 20;
+        const MIN_STEPS = 1;
+
+        // ESP32側のGPIOピン番号・表示順
+        const VALVE_PINS = [2, 4, 5, 12, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
+
+        let currentValves = 18;
+        const MAX_VALVES = VALVE_PINS.length;
+        const MIN_VALVES = 1;
+
+        // --- テーブル描画処理 ---
+        function renderTable() {
+            // 1. 現在入力されているデータをバックアップ
+            const backup = {};
+            document.querySelectorAll('#sequenceTable input[type="checkbox"]').forEach(cb => backup[cb.id] = cb.checked);
+            document.querySelectorAll('#sequenceTable input[type="number"]').forEach(num => backup[num.id] = num.value);
+            document.querySelectorAll('#sequenceTable input[type="text"]').forEach(text => backup[text.id] = text.value);
+
+            // 2. テーブルの初期化
+            const tableHeader = document.getElementById('tableHeader');
+            const tbody = document.querySelector('#sequenceTable tbody');
+            tableHeader.innerHTML = '<th>項目 \\ ステップ</th>';
+            tbody.innerHTML = '';
+
+            // 3. ヘッダーの生成
+            for (let i = 1; i <= currentSteps; i++) {
+                const th = document.createElement('th');
+                th.textContent = `S${i}`;
+                tableHeader.appendChild(th);
+            }
+
+            // 4. 有効/無効の行
+            const trEnable = document.createElement('tr');
+            trEnable.className = 'control-row';
+            trEnable.innerHTML = '<td><strong>有効 / 無効</strong></td>';
+            for (let s = 1; s <= currentSteps; s++) {
+                const td = document.createElement('td');
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.id = `enable_s${s}`;
+                cb.checked = true;
+                td.appendChild(cb);
+                trEnable.appendChild(td);
+            }
+            tbody.appendChild(trEnable);
+
+            // 5. 実行時間の行
+            const trTime = document.createElement('tr');
+            trTime.className = 'control-row';
+            trTime.innerHTML = '<td><strong>時間 (ミリ秒)</strong></td>';
+            for (let s = 1; s <= currentSteps; s++) {
+                const td = document.createElement('td');
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.id = `time_s${s}`;
+                input.value = 1000;
+                input.min = 0;
+                input.step = 100;
+                td.appendChild(input);
+                trTime.appendChild(td);
+            }
+            tbody.appendChild(trTime);
+
+            // 6. バルブの行
+            for (let v = 1; v <= currentValves; v++) {
+                const tr = document.createElement('tr');
+                const tdLabel = document.createElement('td');
+                const pinNumber = VALVE_PINS[v - 1];
+
+                tdLabel.innerHTML = `
+                    <div class="valve-label-box">
+                        <span class="pin-label">Pin_${pinNumber}</span>
+                        <input
+                            type="text"
+                            id="name_v${v}"
+                            class="custom-name-input"
+                            placeholder="カスタム名"
+                        >
+                    </div>
+                `;
+                tr.appendChild(tdLabel);
+
+                for (let s = 1; s <= currentSteps; s++) {
+                    const td = document.createElement('td');
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.id = `v${v}_s${s}`;
+                    td.appendChild(cb);
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+
+            // 7. バックアップからデータを復元
+            document.querySelectorAll('#sequenceTable input[type="checkbox"]').forEach(cb => {
+                if (backup[cb.id] !== undefined) cb.checked = backup[cb.id];
+            });
+            document.querySelectorAll('#sequenceTable input[type="number"]').forEach(num => {
+                if (backup[num.id] !== undefined) num.value = backup[num.id];
+            });
+            document.querySelectorAll('#sequenceTable input[type="text"]').forEach(text => {
+                if (backup[text.id] !== undefined) text.value = backup[text.id];
+            });
+
+            // 8. 表示カウントの更新
+            document.getElementById('valveCountDisp').innerText = currentValves;
+            document.getElementById('stepCountDisp').innerText = currentSteps;
+
+            // 9. +/- ボタンの有効/無効表示
+            document.getElementById('btnValveMinus').disabled = currentValves <= MIN_VALVES;
+            document.getElementById('btnValvePlus').disabled = currentValves >= MAX_VALVES;
+            document.getElementById('btnStepMinus').disabled = currentSteps <= MIN_STEPS;
+            document.getElementById('btnStepPlus').disabled = currentSteps >= MAX_STEPS;
+        }
+
+        // --- +/- ボタンのイベントリスナー ---
+        document.getElementById('btnValvePlus').addEventListener('click', () => {
+            if (currentValves < MAX_VALVES) {
+                currentValves++;
+                renderTable();
+            } else {
+                alert('バルブは18個までしか追加できません。');
+            }
+        });
+
+        document.getElementById('btnValveMinus').addEventListener('click', () => {
+            if (currentValves > MIN_VALVES) {
+                currentValves--;
+                renderTable();
+            }
+        });
+
+        document.getElementById('btnStepPlus').addEventListener('click', () => {
+            if (currentSteps < MAX_STEPS) {
+                currentSteps++;
+                renderTable();
+            } else {
+                alert('ステップは20個までしか追加できません。');
+            }
+        });
+
+        document.getElementById('btnStepMinus').addEventListener('click', () => {
+            if (currentSteps > MIN_STEPS) {
+                currentSteps--;
+                renderTable();
+            }
+        });
+
+        // 初回読み込み時にテーブルを描画
+        renderTable();
+
+        // --- 設定ファイル保存処理 ---
+        function saveConfig() {
+            const config = {
+                version: 1,
+                savedAt: new Date().toISOString(),
+                valvePins: VALVE_PINS,
+                currentValves: currentValves,
+                currentSteps: currentSteps,
+                loopCount: parseInt(document.getElementById('loopCount').value) || 1,
+                valveNames: [],
+                steps: []
+            };
+
+            for (let v = 1; v <= currentValves; v++) {
+                const nameInput = document.getElementById(`name_v${v}`);
+                config.valveNames.push({
+                    index: v,
+                    pin: VALVE_PINS[v - 1],
+                    name: nameInput ? nameInput.value : ''
+                });
+            }
+
+            for (let s = 1; s <= currentSteps; s++) {
+                const stepData = {
+                    step: s,
+                    enabled: document.getElementById(`enable_s${s}`).checked,
+                    timeMs: parseInt(document.getElementById(`time_s${s}`).value) || 0,
+                    valves: []
+                };
+
+                for (let v = 1; v <= currentValves; v++) {
+                    const cb = document.getElementById(`v${v}_s${s}`);
+                    stepData.valves.push({
+                        index: v,
+                        pin: VALVE_PINS[v - 1],
+                        checked: cb ? cb.checked : false
+                    });
+                }
+
+                config.steps.push(stepData);
+            }
+
+            const jsonText = JSON.stringify(config, null, 2);
+            const blob = new Blob([jsonText], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+
+            const now = new Date();
+            const fileName = `valve_config_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.json`;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(url);
+        }
+
+        // --- 設定ファイル読み込み処理 ---
+        function loadConfigFromFile(file) {
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                try {
+                    const config = JSON.parse(event.target.result);
+
+                    if (!config || !Array.isArray(config.steps) || !Array.isArray(config.valveNames)) {
+                        alert('設定ファイルの形式が正しくありません。');
+                        return;
+                    }
+
+                    currentValves = Math.min(Math.max(config.currentValves || 18, MIN_VALVES), MAX_VALVES);
+                    currentSteps = Math.min(Math.max(config.currentSteps || 10, MIN_STEPS), MAX_STEPS);
+
+                    document.getElementById('loopCount').value = config.loopCount || 1;
+
+                    // テーブルを再描画
+                    renderTable();
+
+                    // バルブ名を復元
+                    config.valveNames.forEach(valve => {
+                        const nameInput = document.getElementById(`name_v${valve.index}`);
+                        if (nameInput) {
+                            nameInput.value = valve.name || '';
+                        }
+                    });
+
+                    // ステップ情報を復元
+                    config.steps.forEach(stepData => {
+                        const s = stepData.step;
+
+                        const enableCb = document.getElementById(`enable_s${s}`);
+                        if (enableCb) {
+                            enableCb.checked = Boolean(stepData.enabled);
+                        }
+
+                        const timeInput = document.getElementById(`time_s${s}`);
+                        if (timeInput) {
+                            timeInput.value = stepData.timeMs || 0;
+                        }
+
+                        if (Array.isArray(stepData.valves)) {
+                            stepData.valves.forEach(valve => {
+                                const cb = document.getElementById(`v${valve.index}_s${s}`);
+                                if (cb) {
+                                    cb.checked = Boolean(valve.checked);
+                                }
+                            });
+                        }
+                    });
+
+                    alert('設定ファイルを読み込みました。');
+
+                } catch (error) {
+                    console.error(error);
+                    alert('設定ファイルの読み込みに失敗しました。');
+                }
+            };
+
+            reader.readAsText(file);
+        }
+
+        // --- 保存・読み込みボタンのイベント ---
+        document.getElementById('saveConfigBtn').addEventListener('click', () => {
+            saveConfig();
+        });
+
+        document.getElementById('loadConfigBtn').addEventListener('click', () => {
+            document.getElementById('configFileInput').click();
+        });
+
+        document.getElementById('configFileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                loadConfigFromFile(file);
+            }
+            event.target.value = '';
+        });
+
+        // --- Bluetooth通信処理 ---
+        const SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
+        const CHARACTERISTIC_UUID = '12345678-1234-5678-1234-56789abcdef1';
+
+        let bluetoothDevice;
+        let commandCharacteristic;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const statusDiv = document.getElementById('status');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                statusDiv.innerText = 'ステータス: 接続中...';
+                statusDiv.style.color = '#333';
+
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'ESP32_Valve_Control' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                bluetoothDevice.addEventListener('gattserverdisconnected', () => {
+                    statusDiv.innerText = 'ステータス: 切断されました';
+                    statusDiv.style.color = 'red';
+                    sendBtn.disabled = true;
+                    commandCharacteristic = null;
+                });
+
+                const server = await bluetoothDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                commandCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+                statusDiv.innerText = 'ステータス: 接続完了';
+                statusDiv.style.color = '#28a745';
+                sendBtn.disabled = false;
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = 'ステータス: 接続失敗 (' + error.message + ')';
+                statusDiv.style.color = 'red';
+            }
+        });
+
+        // --- データ送信処理 ---
+        sendBtn.addEventListener('click', async () => {
+            if (!commandCharacteristic) return;
+
+            const loopCount = parseInt(document.getElementById('loopCount').value) || 1;
+            const safeLoopCount = Math.min(Math.max(loopCount, 1), 999);
+            let payloadArray = [safeLoopCount];
+
+            // 動的に変更された currentSteps と currentValves の数だけループ処理
+            for (let s = 1; s <= currentSteps; s++) {
+                const isEnabled = document.getElementById(`enable_s${s}`).checked;
+                if (!isEnabled) continue;
+
+                const timeMs = parseInt(document.getElementById(`time_s${s}`).value) || 0;
+                let valveState = 0;
+
+                for (let v = 1; v <= currentValves; v++) {
+                    const cb = document.getElementById(`v${v}_s${s}`);
+                    if (cb && cb.checked) {
+                        valveState |= (1 << (v - 1));
+                    }
+                }
+
+                payloadArray.push(timeMs);
+                payloadArray.push(valveState);
+            }
+
+            if (payloadArray.length <= 1) {
+                alert('有効なステップがありません。');
+                return;
+            }
+
+            const sequenceData = new Uint32Array(payloadArray);
+
+            try {
+                await commandCharacteristic.writeValue(sequenceData);
+                statusDiv.innerText = 'ステータス: 送信完了 (' + new Date().toLocaleTimeString() + ')';
+                statusDiv.style.color = '#28a745';
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = 'ステータス: 送信エラー (' + error.message + ')';
+                statusDiv.style.color = 'red';
+            }
+        });
+    </script>
+</body>
+</html>
