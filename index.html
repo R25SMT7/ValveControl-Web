@@ -53,6 +53,7 @@
         #sendBtn:disabled { background-color: #aaa; cursor: not-allowed; }
         #saveConfigBtn { background-color: var(--cyan); color: white; border: none; }
         #loadConfigBtn { background-color: var(--yellow); color: #222; border: none; }
+        #resetConfigBtn { background-color: var(--red); color: white; border: none; }
         #addLabelBtn { background-color: var(--purple); color: white; border: none; }
         #renameLabelBtn { background-color: var(--blue); color: white; border: none; }
         #deleteLabelBtn { background-color: var(--red); color: white; border: none; }
@@ -411,16 +412,25 @@
             background: #f5f0ff;
         }
 
-        .valve-row.label-select-mode-row .valve-label-cell::after {
-            content: "ドラッグ選択中";
-            display: inline-block;
-            margin-top: 6px;
+        .label-drag-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             padding: 3px 7px;
             border-radius: 999px;
             background: #6f42c1;
             color: white;
             font-size: 11px;
             font-weight: 700;
+            white-space: nowrap;
+            visibility: hidden;
+            flex: 0 0 auto;
+            min-width: 82px;
+            box-sizing: border-box;
+        }
+
+        .valve-row.label-select-mode-row.label-select-active-row .label-drag-badge {
+            visibility: visible;
         }
 
         .step-range-input { display: none; }
@@ -586,6 +596,7 @@
                 <strong class="setting-label">設定ファイル: </strong>
                 <button id="saveConfigBtn">設定を保存</button>
                 <button id="loadConfigBtn">設定を読み込み</button>
+                <button id="resetConfigBtn">リセット</button>
                 <input type="file" id="configFileInput" accept=".json,application/json" style="display: none;">
             </div>
 
@@ -594,7 +605,8 @@
                 ※ ステップ見出しの「≡ S1」部分をドラッグすると、ステップ列の順番を変更できます。<br>
                 ※ バルブの表示順を変えてもBLE送信時のbit割り当てはPin番号基準なので、ESP32側の対応が崩れにくい仕様です。<br>
                 ※ ステップの表示順を変えた場合、BLE送信は画面に並んでいる左から右の順番で送信されます。<br>
-                ※ カスタム名、ラベル、バルブ表示順、ステップ表示順、時間、チェック状態、ループ回数はJSON設定ファイルとして保存・復元できます。
+                ※ カスタム名、ラベル、バルブ表示順、ステップ表示順、時間、チェック状態、ループ回数はJSON設定ファイルとして保存・復元できます。<br>
+                ※ 「リセット」は、ステップ数・Pin数・作成済みラベル・Pinのカスタム名・ステップ範囲スライダーを残して、時間、チェック状態、並び順、ループ回数などを初期化します。
             </div>
         </div>
 
@@ -869,18 +881,25 @@
 
         // Pin並べ替え操作とラベル選択が干渉しないように、
         // ≡ を触った時点でラベル選択状態を完全に解除する。
-        function forceDisableLabelSelectionForReorder() {
-            labelSelectionMode = false;
+        function clearLabelDragVisualState() {
+            document.querySelectorAll('.valve-row.label-select-mode-row').forEach(row => {
+                row.classList.remove('label-select-mode-row', 'label-select-active-row');
+            });
             labelPaintActive = false;
-            labelSelectionDraftMode = false;
-            draftLabelPins = [];
-            labelSelectionOriginalPins = null;
             labelSelectionStartPin = null;
             labelSelectionStartWasSelected = false;
             labelSelectionDragMoved = false;
             labelSelectionPaintAction = 'add';
             document.removeEventListener('pointermove', handleValveLabelSelectPointerMove);
             document.removeEventListener('pointerup', handleValveLabelSelectPointerUp);
+        }
+
+        function forceDisableLabelSelectionForReorder() {
+            // 並べ替え中は「ドラッグ選択中」表示と選択処理だけ止める。
+            // 作成途中のラベル選択結果は消さず、並べ替え後もラベル追加できるように残す。
+            clearLabelDragVisualState();
+            labelSelectionMode = !!(labelSelectionDraftMode && draftLabelPins.length > 0);
+            labelSelectionOriginalPins = null;
         }
 
         function suppressLabelSelectionFor(ms = 350) {
@@ -1033,7 +1052,9 @@
                 if (labelSelectionMode && isPickedForLabel) {
                     tr.classList.add('label-select-picked');
                 }
-                if (labelSelectionMode) tr.classList.add('label-select-mode-row');
+                if (labelSelectionMode && labelPaintActive && !valveReorderActive && draggedStepKey === null) {
+                    tr.classList.add('label-select-mode-row', 'label-select-active-row');
+                }
                 tr.draggable = false;
                 tr.dataset.pin = pin;
 
@@ -1055,6 +1076,7 @@
                         <div class="valve-main">
                             <div><span class="pin-label">Pin_${pin}</span> <span class="bit-note">bit${bitIndex}</span></div>
                             <div class="custom-name-row">
+                                <span class="label-drag-badge">ドラッグ選択中</span>
                                 <input
                                     type="text"
                                     id="name_pin${pin}"
@@ -1144,6 +1166,9 @@
 
         // --- ステップ列ドラッグ＆ドロップ処理 ---
         function handleStepDragStart(event) {
+            // ステップ並べ替え中は、ラベル用ドラッグ選択と表示が干渉しないように止める。
+            clearLabelDragVisualState();
+            suppressLabelSelectionFor(1500);
             draggedStepKey = Number(event.currentTarget.dataset.stepKey);
             event.currentTarget.classList.add('dragging');
             event.dataTransfer.effectAllowed = 'move';
@@ -1175,6 +1200,7 @@
             // 挿入ではなく「交換」にする。
             // 例: 1 2 3 4 5 の状態で S1 を S5 に重ねると、5 2 3 4 1 になる。
             [stepOrder[fromIndex], stepOrder[toIndex]] = [stepOrder[toIndex], stepOrder[fromIndex]];
+            clearLabelDragVisualState();
             renderTable(backup);
         }
 
@@ -1182,6 +1208,8 @@
             event.currentTarget.classList.remove('dragging');
             document.querySelectorAll('.step-header.drag-over').forEach(header => header.classList.remove('drag-over'));
             draggedStepKey = null;
+            clearLabelDragVisualState();
+            suppressLabelSelectionFor(800);
         }
 
         // --- バルブ行ドラッグ＆ドロップ処理 ---
@@ -1242,6 +1270,7 @@
             // 挿入ではなく「交換」にする。
             // 例: Pin_2 を Pin_14 に重ねると、2番目以降が詰まるのではなく2つの位置だけ入れ替わる。
             [valveOrder[fromIndex], valveOrder[toIndex]] = [valveOrder[toIndex], valveOrder[fromIndex]];
+            clearLabelDragVisualState();
             renderTable(backup);
         }
 
@@ -1250,6 +1279,7 @@
             document.querySelectorAll('.valve-row.drag-over').forEach(row => row.classList.remove('drag-over'));
             draggedPin = null;
             valveReorderActive = false;
+            clearLabelDragVisualState();
             suppressLabelSelectionFor(800);
         }
 
@@ -1630,6 +1660,7 @@
 
             const pin = Number(row.dataset.pin);
             labelPaintActive = true;
+            row.classList.add('label-select-mode-row', 'label-select-active-row');
             labelSelectionStartPin = pin;
             labelSelectionStartWasSelected = isPinSelectedForCurrentDraft(pin);
             labelSelectionPaintAction = labelSelectionStartWasSelected ? 'remove' : 'add';
@@ -1670,6 +1701,7 @@
 
             const pin = Number(row.dataset.pin);
             if (!Number.isFinite(pin)) return;
+            row.classList.add('label-select-mode-row', 'label-select-active-row');
             if (pin !== labelSelectionStartPin) labelSelectionDragMoved = true;
             paintPinForCurrentLabel(pin);
         }
@@ -1690,11 +1722,7 @@
                 removePinFromSelectedLabel(labelSelectionStartPin);
             }
 
-            labelPaintActive = false;
-            labelSelectionStartPin = null;
-            labelSelectionStartWasSelected = false;
-            labelSelectionDragMoved = false;
-            labelSelectionPaintAction = 'add';
+            clearLabelDragVisualState();
             renderLabelControls();
         }
 
@@ -2104,6 +2132,61 @@
         initStepRangeEditor();
         renderTable({ checkbox: {}, number: {}, text: {} });
 
+        // --- リセット処理：ステップ数・Pin数・ラベル・カスタム名・範囲スライダーは残して初期化 ---
+        function resetExceptCountsAndLabels() {
+            if (!confirm('ステップ数・Pin数・作成済みラベル・Pinのカスタム名・ステップ範囲スライダー以外をリセットしますか？')) return;
+
+            const keptLabels = valveLabels.map(label => ({
+                ...label,
+                pins: Array.isArray(label.pins) ? [...label.pins] : []
+            }));
+            const keptSelectedLabelId = selectedLabelId;
+            const keptNextLabelId = nextLabelId;
+
+            // Pinのカスタム名を維持
+            const keptCustomNames = {};
+            getActivePins().forEach(pin => {
+                const nameInput = document.getElementById(`name_pin${pin}`);
+                if (nameInput) keptCustomNames[`name_pin${pin}`] = nameInput.value;
+            });
+
+            // ステップ範囲スライダーを維持
+            const keptRangeStart = parseInt(document.getElementById('labelStepStart').value) || 1;
+            const keptRangeEnd = parseInt(document.getElementById('labelStepEnd').value) || currentSteps;
+
+            // ドラッグ選択や並べ替え中の一時状態を解除
+            cancelActiveLabelPaint();
+            labelSelectionMode = false;
+            labelPaintActive = false;
+            labelSelectionOriginalPins = null;
+            labelSelectionDraftMode = false;
+            draftLabelPins = [];
+            labelSelectionStartPin = null;
+            labelSelectionStartWasSelected = false;
+            labelSelectionDragMoved = false;
+            draggedPin = null;
+            draggedStepKey = null;
+            draggedLabelId = null;
+            valveReorderActive = false;
+
+            // 数・ラベル・カスタム名・範囲スライダーは維持し、それ以外を初期化
+            valveLabels = keptLabels;
+            selectedLabelId = keptLabels.some(label => String(label.id) === String(keptSelectedLabelId))
+                ? keptSelectedLabelId
+                : (keptLabels.length > 0 ? keptLabels[0].id : null);
+            nextLabelId = keptNextLabelId || (keptLabels.length ? Math.max(...keptLabels.map(label => Number(label.id) || 0)) + 1 : 1);
+
+            valveOrder = [...VALVE_PINS];
+            stepOrder = Array.from({ length: MAX_STEPS }, (_, i) => i + 1);
+            normalizeStepOrder();
+
+            document.getElementById('loopCount').value = 1;
+
+            // checkbox/numberは空バックアップで初期化、textだけ保持してカスタム名を残す
+            renderTable({ checkbox: {}, number: {}, text: keptCustomNames });
+            setStepRange(keptRangeStart, keptRangeEnd);
+        }
+
         // --- 設定ファイル保存処理 ---
         function saveConfig() {
             const config = {
@@ -2277,6 +2360,7 @@
 
         document.getElementById('saveConfigBtn').addEventListener('click', () => saveConfig());
         document.getElementById('loadConfigBtn').addEventListener('click', () => document.getElementById('configFileInput').click());
+        document.getElementById('resetConfigBtn').addEventListener('click', () => resetExceptCountsAndLabels());
         document.getElementById('configFileInput').addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (file) loadConfigFromFile(file);
